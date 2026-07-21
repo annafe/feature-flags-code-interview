@@ -1,0 +1,70 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.example.interview'
+version = '1.0-SNAPSHOT'
+
+def requestedJavaVersion = providers.gradleProperty('javaVersion')
+        .map { Integer.parseInt(it) }
+        .getOrElse(25)
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(requestedJavaVersion)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.13.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+sourceSets {
+    stage2Test {
+        java.srcDir 'src/stage2Test/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    stage3Test {
+        java.srcDir 'src/stage3Test/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    stage2TestImplementation.extendsFrom testImplementation
+    stage2TestRuntimeOnly.extendsFrom testRuntimeOnly
+    stage3TestImplementation.extendsFrom testImplementation
+    stage3TestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events 'failed', 'skipped'
+        exceptionFormat = 'full'
+    }
+}
+
+tasks.register('stage2Test', Test) {
+    description = 'Runs the percentage rollout requirement tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.stage2Test.output.classesDirs
+    classpath = sourceSets.stage2Test.runtimeClasspath
+    shouldRunAfter tasks.test
+}
+
+tasks.register('stage3Test', Test) {
+    description = 'Runs the composable rule requirement tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.stage3Test.output.classesDirs
+    classpath = sourceSets.stage3Test.runtimeClasspath
+    shouldRunAfter tasks.named('stage2Test')
+}
