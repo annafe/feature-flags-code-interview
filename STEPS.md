@@ -1,7 +1,6 @@
 # Candidate steps
 
-The suggested time boxes are guidance. Correctness, reasoning, and a coherent
-design matter more than completing every item.
+The time boxes are guidance. Work in order and keep the design small.
 
 ## Step 1 — repair existing behavior (0–15 minutes)
 
@@ -11,75 +10,77 @@ Run:
 ./gradlew test
 ```
 
-Some tests fail because the legacy implementation does not meet its documented
-behavior. Diagnose and fix the failures without weakening or deleting tests.
+The active tests should report exactly two failures. Diagnose and repair the
+legacy implementation without weakening or deleting tests.
 
-Existing rules:
+Required behavior:
 
-- `ON` enables a flag for everyone.
-- `OFF` disables a flag for everyone.
-- `COUNTRY:DE,PL` enables a flag in any listed country.
-- An unknown flag is disabled.
-- An unsupported rule fails fast.
-- `replaceConfiguration` replaces the complete old configuration snapshot; it
-  does not merge snapshots.
+- A configured rule decides whether its flag is enabled.
+- Country rules may target several countries.
+- Unknown flags are disabled.
+- `replaceRules` replaces the complete previous rule set; it does not merge.
 
-Preserve the public `isEnabled` entry point.
+Keep `FeatureFlagService.isEnabled` usable by existing callers.
 
-## Step 2 — deterministic percentage rollout (15–35 minutes)
+## Step 2 — deterministic percentage rule (15–35 minutes)
 
-Run the new requirement tests with the repaired baseline:
+Open `PercentageRuleTest` and remove its class-level `@Disabled` annotation.
+Then run:
 
 ```shell
-./gradlew test stage2Test
+./gradlew test --tests '*PercentageRuleTest'
 ```
 
-Add a rule such as `PERCENTAGE:20`.
+Implement `FlagRule.percentage(int percentage)`.
 
-- The percentage is an integer from 0 through 100.
-- A non-null user must consistently receive the same answer for the same flag,
-  including after constructing a new service with the same configuration.
-- Assignment must use both the flag key and user ID. Membership in one feature
-  must not automatically imply membership in every feature.
-- The enabled population should be reasonably close to the requested share.
-- An anonymous (`null`) user is disabled for percentage rules.
-- Invalid percentages fail fast.
+### What “deterministic percentage” means
 
-Add at least one focused edge-case test of your own. Refactor the legacy method
-if that makes the next change safer; avoid building a general rules platform.
+A 20% rollout must not choose a fresh random 20% on every request. The same
+user evaluating the same flag must always receive the same answer—even in a new
+service instance or after an application restart.
 
-## Step 3 — composable targeting rules (35–55 minutes)
+One simple mental model is 100 numbered buckets:
 
-Run all three suites:
+1. Combine the `flagKey` and `userId` into one stable identity.
+2. Produce a stable integer hash from that identity.
+3. Normalize it into a bucket from `0` through `99`. Remember that Java hashes
+   can be negative.
+4. For 20%, enable buckets `0` through `19`. For 0%, enable none; for 100%,
+   enable all non-null users.
+
+This should be approximately 20% across a large population, not necessarily
+exactly 20 users in every particular group of 100. Include the flag key so a
+user is not automatically in the same rollout bucket for every feature.
+
+Do not use `Random`, current time, or mutable counters. An anonymous (`null`)
+user is disabled. Percentages outside `0..100` are invalid.
+
+Add one focused edge-case test of your own.
+
+## Step 3 — compose rules with OR (35–55 minutes)
+
+Open `AnyOfRuleTest` and remove its class-level `@Disabled` annotation. Run:
 
 ```shell
-./gradlew test stage2Test stage3Test
+./gradlew test --tests '*AnyOfRuleTest'
 ```
 
-Product now needs rules that can be composed with **OR**, for example:
+Implement `FlagRule.anyOf(List<FlagRule> rules)`.
 
-```text
-USER:user-1,user-2|COUNTRY:DE,PL|PERCENTAGE:10
-```
-
-- A flag is enabled when any segment matches.
-- `USER` matches an exact user ID from its comma-separated list.
-- Existing `ON`, `OFF`, `COUNTRY`, and `PERCENTAGE` segments remain valid.
-- Existing single-segment configurations remain valid.
-- Empty or unsupported segments fail fast.
-- Anonymous users can match only rules that do not require user data, such as
-  `ON`.
-
-`FlagRule` and `AnyOfRule` are starter types for the missing OO implementation.
-Use, change, or replace them as your design requires, but keep the external
-string format at the boundary and preserve `FeatureFlagService.isEnabled`.
+- It is enabled when any child rule is enabled.
+- Stop evaluating after the first match.
+- Reject an empty rule list.
+- Defensively copy the supplied list so later caller changes do not alter the
+  rule.
+- Reuse existing rules; do not introduce a parser or expression language.
 
 ## Finish — review (55–60 minutes)
 
-If time remains:
+Run the full suite and review the code:
 
-- Make names and responsibilities clear.
-- Remove duplication introduced while progressing through the steps.
-- Explain what you would do next for thread-safe live configuration refreshes,
-  observability, and malformed production configuration.
+```shell
+./gradlew test
+```
 
+Explain how you might make live rule replacement safe for concurrent request
+threads. This is discussion only, not another implementation requirement.

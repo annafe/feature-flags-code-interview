@@ -3,41 +3,35 @@ package com.example.flags;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FeatureFlagServiceTest {
-    private final UserContext germanUser = new UserContext("user-123", "DE");
+    private final UserContext germanUser = new UserContext("user-1", "DE");
 
     @Test
-    void evaluatesGloballyEnabledAndDisabledFlags() {
+    void evaluatesConfiguredRules() {
         var flags = new FeatureFlagService(Map.of(
-                "new-checkout", "ON",
-                "new-search", "OFF"
+                "checkout", FlagRule.enabled(),
+                "search", FlagRule.disabled()
         ));
 
-        assertTrue(flags.isEnabled("new-checkout", germanUser));
-        assertFalse(flags.isEnabled("new-search", germanUser));
+        assertTrue(flags.isEnabled("checkout", germanUser));
+        assertFalse(flags.isEnabled("search", germanUser));
     }
 
     @Test
-    void enablesAFlagInASingleConfiguredCountry() {
-        var flags = new FeatureFlagService(Map.of("recommendations", "COUNTRY:DE"));
+    void evaluatesCountryRules() {
+        var flags = new FeatureFlagService(Map.of(
+                "recommendations", FlagRule.forCountries(Set.of("DE", "AT"))
+        ));
 
         assertTrue(flags.isEnabled("recommendations", germanUser));
-        assertFalse(flags.isEnabled("recommendations", new UserContext("user-456", "FR")));
+        assertTrue(flags.isEnabled("recommendations", new UserContext("user-2", "AT")));
+        assertFalse(flags.isEnabled("recommendations", new UserContext("user-3", "FR")));
         assertFalse(flags.isEnabled("recommendations", null));
-    }
-
-    @Test
-    void enablesAFlagInAnyOfSeveralConfiguredCountries() {
-        var flags = new FeatureFlagService(Map.of("recommendations", "COUNTRY:DE, PL"));
-
-        assertTrue(flags.isEnabled("recommendations", germanUser));
-        assertTrue(flags.isEnabled("recommendations", new UserContext("user-456", "PL")));
-        assertFalse(flags.isEnabled("recommendations", new UserContext("user-789", "FR")));
     }
 
     @Test
@@ -48,24 +42,16 @@ class FeatureFlagServiceTest {
     }
 
     @Test
-    void failsFastForAnUnsupportedRule() {
-        var flags = new FeatureFlagService(Map.of("new-checkout", "SOMEDAY"));
-
-        assertThrows(IllegalArgumentException.class,
-                () -> flags.isEnabled("new-checkout", germanUser));
-    }
-
-    @Test
-    void replacesTheCompleteConfigurationSnapshot() {
+    void replacesTheCompleteRuleSnapshot() {
         var flags = new FeatureFlagService(Map.of(
-                "new-checkout", "ON",
-                "recommendations", "ON"
+                "checkout", FlagRule.enabled(),
+                "search", FlagRule.enabled()
         ));
 
-        flags.replaceConfiguration(Map.of("recommendations", "OFF"));
+        flags.replaceRules(Map.of("search", FlagRule.disabled()));
 
-        assertFalse(flags.isEnabled("new-checkout", germanUser));
-        assertFalse(flags.isEnabled("recommendations", germanUser));
+        assertFalse(flags.isEnabled("checkout", germanUser));
+        assertFalse(flags.isEnabled("search", germanUser));
     }
 }
 
